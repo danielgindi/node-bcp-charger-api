@@ -1,0 +1,37 @@
+{
+  "name": "@danielgindi/bcp-charger-api",
+  "version": "1.0.0",
+  "description": "A node.js api for controlling the BCP EV chargers (Z-Box compatible chargers)",
+  "type": "module",
+  "main": "index.js",
+  "dependencies": {
+    "iconv-lite": "^0.6.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/danielgindi/node-bcp-charger-api"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "scripts": {
+    "lint": "eslint -f codeframe ./",
+    "lint-fix": "eslint -f codeframe --fix ./",
+    "postinstall": "husky install",
+    "prepublishOnly": "pinst --disable",
+    "postpublish": "pinst --enable"
+  },
+  "author": "Daniel Cohen Gindi <danielgindi@gmail.com> (https://github.com/danielgindi)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/danielgindi/node-bcp-charger-api/issues"
+  },
+  "homepage": "https://github.com/danielgindi/node-bcp-charger-api",
+  "devDependencies": {
+    "babel-eslint": "^10.1.0",
+    "eslint": "^8.25.0",
+    "eslint-formatter-codeframe": "^7.32.1",
+    "husky": "^8.0.1",
+    "pinst": "^3.0.0"
+  }
+}
