@@ -16,9 +16,9 @@ npm install --save @danielgindi/bcp-charger-api
 
 ```javascript
 
-import { DeviceController } from '@danielgindi/bcp-charger-api';
+import { ChargerController } from '@danielgindi/bcp-charger-api';
 
-let charger = new DeviceController('123456');
+let charger = new ChargerController('123456');
 
 // Take the code from the QR on the charger or the Z-Box app, and let's resolve the IP address for the charger.
 await charger.sendGetIpAddress('012345678');
@@ -32,41 +32,58 @@ if (await charger.sendSetChargeState(true)) {
   console.log('Charging failed!');
 }
 
-// Other commands, documented in the code:
-// await charger.sendHeartbeat();
-// await charger.sendSetPassword(password);
-// await charger.sendSetWifiAccessPoint(ssid, password);
-// await charger.sendSetTimedChargeState('22:00', '05:00');
-// await charger.sendSetRFIDAndApp(true, true);
-// await charger.sendSetDLB(true, false, 16, true);
-// await charger.sendSetGroundingDetection(true);
-// await charger.sendSetMaxCurrent(16);
-// await charger.sendGetRealTimeStatus();
-// await charger.sendGetRealTimeData();
-// await charger.sendGetControlsState();
-// await charger.sendSetBluetoothConnectionMode(true);
-// await charger.sendSwitchIapMode(true);
-// await charger.sendSetMaxDegrees(85);
-// await charger.sendSetReservation('21:00', '05:00', '1011011');
-// await charger.sendSetTime();
-// await charger.sendGetPowerConsumptionRecords();
-// await charger.sendGetPowerConsumptionRecordsOfMonth();
-// await charger.sendSetMaxMonthlyCurrent(490);
-// await charger.sendSetEmergencyStopProtection(true);
-
-// Other functions, documented in the code:
-// await charger.getHost();
-// await charger.setHost('255.255.255.255', 3333);
-// await charger.getModelData();
-// await charger.getLastControlsState();
-// await charger.getLastData();
-// await charger.getLastStatus();
-// await charger.getStatusText();
-// await charger.getStatusDesc();
-// await charger.canStopCharging();
-// await charger.canStartCharging();
-
 ```
+
+### class ChargerController
+
+All methods/properties/events are documented in the code.
+
+#### Methods:
+* `setHost(ip: string, port: number = 3333)`
+* `async sendGetIpAddress(chargerCode: string): Promise<{port: number, ip: string}>`
+* `async sendHeartbeat(): Promise<void>`
+* `async sendGetChargerModel(): Promise<ChargerModel>`
+* `async sendSetPassword(password: string): Promise<boolean>`
+* `async sendSetWifiAccessPoint(ssid: string, password: string): Promise<boolean>`
+* `async sendSetTimedChargeState(fromTime: string, toTime: string): Promise<boolean>`
+* `async sendSetRFIDAndApp(rfidEnabled: boolean, appEnabled: boolean): Promise<boolean>`
+* `async sendSetDLB(enabled: boolean, extremeMode: boolean, maxCurrent: number, nightMode: boolean): Promise<boolean>`
+* `async sendSetGroundingDetection(enabled: boolean): Promise<boolean>`
+* `async sendSetMaxCurrent(maxCurrent: number): Promise<boolean>`
+* `async sendGetFaultStatus(): Promise<ChargeFaultStatus>`
+* `async sendGetRealTimeData(): Promise<ChargerRealTimeData>`
+* `async sendGetControlsState(): Promise<ChargerControlsState>`
+* `async sendSetBluetoothConnectionMode(enabled: boolean): Promise<boolean>`
+* `async sendSwitchIapMode(enabled: boolean): Promise<boolean>`
+* `async sendSetMaxPower(maxPower: number): Promise<boolean>`
+* `async sendSetReservation(fromTime: string, toTime: string, daysOfWeek: string): Promise<boolean>`
+* `async sendSyncTime(): Promise<boolean>`
+* `async sendGetPowerConsumptionRecords(): Promise<PowerConsumptionRecords>`
+* `async sendGetPowerConsumptionRecordsOfMonth(year: number, month: number): Promise<PowerConsumptionRecordsOfMonth>`
+* `async sendSetMaxMonthlyPower(maxCurrent: number): Promise<boolean>`
+* `async sendSetEmergencyStopProtection(enabled: boolean): Promise<boolean>`
+
+#### Properties:
+* `get host: {port: number, ipAddress: string}`
+* `get modelInfo: ChargerModel|null`
+* `get lastControlsState: ChargerControlsState|null`
+* `get lastRealTimeData: ChargerRealTimeData|null`
+* `get lastFaultStatus: ChargeFaultStatus|null`
+* `get lastKnownState: ChargerState|null`
+* `get canStopCharging: boolean`
+* `get canStartCharging: boolean`
+
+#### Events:
+* `'malformed_message' (message: Buffer)`
+* `'charger_error' (code: string)`
+* `'message' (message: ParsedMessage)`
+* `'heartbeat' ()`
+* `'password' (password: string)`
+* `'ip' (event: { ip: string, port: number })`
+* `'fault_status' (status: ChargeFaultStatus)`
+* `'realtime_data' (data: ChargerRealTimeData)`
+* `'controls_state' (data: ChargerControlsState)`
+
 
 ## Contributing
 

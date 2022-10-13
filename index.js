@@ -5,25 +5,25 @@ import { promisify } from 'node:util';
 import { EventEmitter } from 'node:events';
 
 /**
- * @typedef {Object} ChargeRealTimeStatus
- * @property {number} overVoltageFault
- * @property {number} underVoltageFault
- * @property {number} overloadFault
- * @property {number} highTemperatureFault
- * @property {number} groundDetectionFault
- * @property {number} leakageFault
- * @property {number} cpSignalAbnormalFault
- * @property {number} emergencyStopButtonFault
- * @property {number} ccSignalAbnormalFault
- * @property {number} dlbWiringFault
- * @property {number} dlbOfflineFault
- * @property {number} motorLockFault
- * @property {number?} stickingFault
- * @property {number?} contactorFault
+ * @typedef {Object} ChargeFaultStatus
+ * @property {boolean} overVoltage
+ * @property {boolean} underVoltage
+ * @property {boolean} overload
+ * @property {boolean} highTemperature
+ * @property {boolean} groundDetection
+ * @property {boolean} leakage
+ * @property {boolean} cpSignalAbnormal
+ * @property {boolean} emergencyStopButton
+ * @property {boolean} ccSignalAbnormal
+ * @property {boolean} dlbWiring
+ * @property {boolean} dlbOffline
+ * @property {boolean} motorLock
+ * @property {boolean?} sticking
+ * @property {boolean?} contactor
  */
 
 /**
- * @typedef {Object} ChargerControls
+ * @typedef {Object} ChargerControlsState
  * @property {boolean} rfid
  * @property {boolean} appControlCharging
  * @property {boolean} dlb
@@ -35,7 +35,7 @@ import { EventEmitter } from 'node:events';
  * @property {string?} reservation
  * @property {string?} reservationStart
  * @property {string?} reservationEnd
- * @property {number?} maxMonthlyCurrent
+ * @property {number?} maxMonthlyPower
  * @property {boolean?} emergencyStopProtection
  * @property {boolean?} extremeMode
  * @property {boolean?} nightMode
@@ -43,31 +43,31 @@ import { EventEmitter } from 'node:events';
 
 /**
  * @typedef {Object} ChargerRealTimeData
- * @property {number?} electricCurrent
- * @property {number?} voltage
- * @property {number?} electricCurrentA
- * @property {number?} electricCurrentB
- * @property {number?} electricCurrentC
- * @property {number?} voltageA
- * @property {number?} voltageB
- * @property {number?} voltageC
- * @property {number} power
- * @property {number} degrees
- * @property {number} temperature
- * @property {number} state
- * @property {boolean} timedChargeState
+ * @property {number?} electricCurrent - available on 1-phase chargers
+ * @property {number?} voltage - available on 1-phase chargers
+ * @property {number?} electricCurrentA - available on 3-phase chargers
+ * @property {number?} electricCurrentB - available on 3-phase chargers
+ * @property {number?} electricCurrentC - available on 3-phase chargers
+ * @property {number?} voltageA - available on 3-phase chargers
+ * @property {number?} voltageB - available on 3-phase chargers
+ * @property {number?} voltageC - available on 3-phase chargers
+ * @property {number} power - current power consumption
+ * @property {number} totalPower - total power consumption since charger started
+ * @property {number} temperature - current charger temperature
+ * @property {ChargerState} state
+ * @property {boolean} timedChargeEnabled - is the charger in timed charge mode (either pending or charging)
  * @property {string} startChargeTime
  * @property {string} endChargeTime
- * @property {number?} maxCurrent
- * @property {number?} stopDegrees
- * @property {boolean?} isReservation
- * @property {boolean?} isMaximum
- * @property {boolean?} isExtremeMode
+ * @property {number?} maxCurrent - max current set by the user
+ * @property {number?} maxPower - max power set by the user, the charger will stop when `totalPower` reaches this value
+ * @property {boolean?} isReservation - has the charger started automatically due to a reservation
+ * @property {boolean?} isMaximum - I don't know what this is.
+ * @property {boolean?} isExtremeMode - is "extreme mode" enabled for DLB
  */
 
 /**
  * @typedef {Object} ChargerModel
- * @property {number} mode
+ * @property {ChargerMode} mode
  * @property {string} version
  * @property {string} firmwareVersion
  * @property {string} hardwareVersion
@@ -89,7 +89,7 @@ import { EventEmitter } from 'node:events';
 /**
  * @typedef {Object} ParsedMessage
  * @property {string} raw
- * @property {string} command
+ * @property {Command} command
  * @property {string} data
  */
 /** */
@@ -97,7 +97,10 @@ import { EventEmitter } from 'node:events';
 const FRAME_HEADER = '55aa';
 const MESSAGE_ID = '0001';
 
-const Commands = Object.freeze({
+/**
+ * @enum {string} Command
+ */
+const Command = Object.freeze({
     Error: '00',
     Heartbeat: '01',
     PasswordChange: '02',
@@ -111,23 +114,38 @@ const Commands = Object.freeze({
     SetDLB: '6b',
     SetGroundingDetection: '6c',
     SetMaxCurrent: '6d',
-    GetRealTimeStatus: '6e',
+    GetFaultStatus: '6e',
     GetRealTimeData: '70',
     GetControlsState: '71',
     SetBluetoothConnectionMode: '72',
     SwitchIapMode: '73',
-    SetMaxDegrees: '74',
+    SetMaxPower: '74',
     SetReservation: '75',
     SetTime: '76',
     GetPowerConsumptionRecords: '77',
-    SetMaxMonthlyCurrent: '78',
+    SetMaxMonthlyPower: '78',
     SetEmergencyStopProtection: '79',
     GetPowerConsumptionRecordsOfMonth: '7a',
 });
 
-const DeviceModes = Object.freeze({
+/**
+ * @enum {number} ChargerMode
+ */
+const ChargerMode = Object.freeze({
     OnePhase: 0,
     ThreePhase: 1,
+});
+
+/**
+ * @enum {number} ChargerState
+ */
+const ChargerState = Object.freeze({
+    Abnormal: 0,
+    Unplugged: 1,
+    Standby: 2,
+    NotReady: 5, // plugged, but waiting for ready state from the vehicle
+    Charging: 6,
+    SelfChecking: 7,
 });
 
 class CommandUtil {
@@ -244,7 +262,7 @@ class CommandUtil {
     }
 }
 
-class DeviceController extends EventEmitter {
+class ChargerController extends EventEmitter {
     /** @type CommandUtil */
     #util;
 
@@ -269,11 +287,11 @@ class DeviceController extends EventEmitter {
     /** @type ChargerModel|null */
     #model = null;
 
-    /** @type ChargeRealTimeStatus|null */
-    #lastStatus = null;
+    /** @type ChargeFaultStatus|null */
+    #lastFaultStatus = null;
 
-    /** @type ChargerControls|null */
-    #lastControl = null;
+    /** @type ChargerControlsState|null */
+    #lastControlsState = null;
 
     /** @type ChargerRealTimeData|null */
     #lastData = null;
@@ -287,11 +305,12 @@ class DeviceController extends EventEmitter {
     /**
      * @returns {{port: number, ipAddress: string}}
      */
-    getHost() {
+    get host() {
         return { ipAddress: this.#ipAddress || '255.255.255.255', port: this.#port || 3333 };
     }
 
     /**
+     * Set the host and port of the charger, or broadcast ip and port when ip is not known.
      * @param {string?} ipAddress
      * @param {number?} port
      */
@@ -308,31 +327,43 @@ class DeviceController extends EventEmitter {
     }
 
     /**
+     * Last model data recorded from calling `sendGetChargerModel()`
      * @returns {ChargerModel|null}
      */
-    getModelData() {
+    get modelInfo() {
         return this.#model;
     }
 
     /**
-     * @returns {ChargerControls|null}
+     * Last controls state recorded from calling `sendGetControlsState()`
+     * @returns {ChargerControlsState|null}
      */
-    getLastControlsState() {
-        return this.#lastControl;
+    get lastControlsState() {
+        return this.#lastControlsState;
     }
 
     /**
+     * Last data recorded from calling `sendGetRealTimeData()`
      * @returns {ChargerRealTimeData|null}
      */
-    getLastData() {
+    get lastRealTimeData() {
         return this.#lastData;
     }
 
     /**
-     * @returns {ChargeRealTimeStatus|null}
+     * Last fault data recorded from calling `sendGetFaultStatus()`
+     * @returns {ChargeFaultStatus|null}
      */
-    getLastStatus() {
-        return this.#lastStatus;
+    get lastFaultStatus() {
+        return this.#lastFaultStatus;
+    }
+
+    /**
+     * Retrieve last known charger state. `null` if unknown yet.
+     * @returns {ChargerState|null}
+     */
+    get lastKnownState() {
+        return this.#lastData?.state ?? null;
     }
 
     async connect() {
@@ -369,15 +400,33 @@ class DeviceController extends EventEmitter {
         socket.addListener('message', (/**Buffer*/msg) => {
             let result = this.#util.parseResult(msg.toString('utf8'));
             if (!result) {
+                /**
+                 * Malformed message event.
+                 *
+                 * @event malformed_message
+                 * @type {Buffer} message
+                 */
                 this.emit('malformed_message', msg);
                 return;
             }
 
-            if (result.command === Commands.Error) {
+            if (result.command === Command.Error) {
                 let error = this.#util.decodeString(result.data.substring(0, 2));
+                /**
+                 * Error received from charger. I don't know yet when this happens.
+                 *
+                 * @event charger_error
+                 * @type {string} code
+                 */
                 this.emit('charger_error', error);
             }
 
+            /**
+             * Each message sent back from the charger.
+             *
+             * @event message
+             * @type {ParsedMessage} message
+             */
             this.emit('message', result);
         });
 
@@ -465,7 +514,13 @@ class DeviceController extends EventEmitter {
     }
 
     async sendHeartbeat() {
-        await this.sendCommand(Commands.Heartbeat, true);
+        await this.sendCommand(Command.Heartbeat, true);
+
+        /**
+         * A heartbeat response sent back from the charger.
+         *
+         * @event heartbeat
+         */
         this.emit('heartbeat');
     }
 
@@ -475,20 +530,29 @@ class DeviceController extends EventEmitter {
      */
     async sendSetPassword(password) {
         let result = await this.sendCommand(
-            Commands.PasswordChange + parseInt(password, 10).toString(16).padStart(8, '0'),
+            Command.PasswordChange + parseInt(password, 10).toString(16).padStart(8, '0'),
             true);
         this.#util.password = password;
+
+        /**
+         * The charger password was successfully changed.
+         *
+         * @event password
+         * @type {string} password
+         */
         this.emit('password', password);
+
         return this.#util.decodeBoolean(result.data);
     }
 
     /**
-     * @param {string} code
-     * @returns {Promise<string>}
+     * Broadcast a request to resolve the charger's IP address and port, based on it's identification code.
+     * @param {string} code - the charger's code, visible on a sticker on the charger, or in the z-box app.
+     * @returns {Promise<{port: number, ip: string}>}
      */
     async sendGetIpAddress(code) {
         let result = await this.sendCommand(
-            Commands.GetIpAddress + parseInt(code, 10).toString(16).padStart(8, '0'),
+            Command.GetIpAddress + parseInt(code, 10).toString(16).padStart(8, '0'),
             true,
             result => parseInt(result.data.substring(0, 8), 16) === parseInt(code, 10));
 
@@ -500,16 +564,24 @@ class DeviceController extends EventEmitter {
 
         this.setHost(ipAddress, port);
 
-        this.emit('ip', ipAddress);
+        /**
+         * An ip address and port was received from the charger.
+         *
+         * @event ip
+         * @type {Object} event
+         * @property {string} ip
+         * @property {number} port
+         */
+        this.emit('ip', { ip: ipAddress, port: port });
 
-        return ipAddress;
+        return { ip: ipAddress, port: port };
     }
 
     /**
      * @returns {Promise<ChargerModel>}
      */
     async sendGetChargerModel() {
-        let result = await this.sendCommand(Commands.GetChargerModel, true);
+        let result = await this.sendCommand(Command.GetChargerModel, true);
 
         /** @type ChargerModel */
         let model = {
@@ -532,7 +604,7 @@ class DeviceController extends EventEmitter {
      * @returns {Promise<boolean>}
      */
     async sendSetWifiAccessPoint(ssid, password) {
-        let result = await this.sendCommand(Commands.SetWifiAccessPoint +
+        let result = await this.sendCommand(Command.SetWifiAccessPoint +
             ssid.length.toString(16).padStart(2, '0') +
             password.length.toString(16).padStart(2, '0') +
             this.#util.encodeString(ssid) +
@@ -547,7 +619,7 @@ class DeviceController extends EventEmitter {
      * @returns {Promise<boolean>}
      */
     async sendSetChargeState(charging) {
-        let result = await this.sendCommand(Commands.SetChargeState +
+        let result = await this.sendCommand(Command.SetChargeState +
             (charging ? '01' : '00'),
             true);
         return this.#util.decodeBoolean(result.data);
@@ -594,7 +666,7 @@ class DeviceController extends EventEmitter {
             nowMinutes.toString(16).padStart(2, '0') +
             nowSeconds.toString(16).padStart(2, '0');
 
-        let result = await this.sendCommand(Commands.SetTimedChargeState + timingString,
+        let result = await this.sendCommand(Command.SetTimedChargeState + timingString,
             true);
         return this.#util.decodeBoolean(result.data);
     }
@@ -606,7 +678,7 @@ class DeviceController extends EventEmitter {
      * @returns {Promise<boolean>}
      */
     async sendSetRFIDAndApp(rfidEnabled, appEnabled) {
-        let result = await this.sendCommand(Commands.SetRFIDAndApp +
+        let result = await this.sendCommand(Command.SetRFIDAndApp +
             (rfidEnabled ? '01' : '00') + (appEnabled ? '01' : '00'),
             true);
         return this.#util.decodeBoolean(result.data);
@@ -621,7 +693,7 @@ class DeviceController extends EventEmitter {
      * @returns {Promise<boolean>}
      */
     async sendSetDLB(enabled, extremeMode, maxCurrent, nightMode) {
-        let result = await this.sendCommand(Commands.SetDLB +
+        let result = await this.sendCommand(Command.SetDLB +
             (enabled ? '01' : '00') +
             (extremeMode ? '01' : '00') +
             Math.min(Math.trunc(maxCurrent), 0xff).toString(16).padStart(2, '0') +
@@ -636,7 +708,7 @@ class DeviceController extends EventEmitter {
      * @returns {Promise<boolean>}
      */
     async sendSetGroundingDetection(enabled) {
-        let result = await this.sendCommand(Commands.SetGroundingDetection +
+        let result = await this.sendCommand(Command.SetGroundingDetection +
             (enabled ? '01' : '00'),
             true);
         return this.#util.decodeBoolean(result.data);
@@ -648,7 +720,7 @@ class DeviceController extends EventEmitter {
      * @returns {Promise<boolean>}
      */
     async sendSetMaxCurrent(maxCurrent) {
-        let result = await this.sendCommand(Commands.SetMaxCurrent +
+        let result = await this.sendCommand(Command.SetMaxCurrent +
             Math.min(Math.trunc(maxCurrent), 0xff).toString(16).padStart(4, '0'),
             true);
         return this.#util.decodeBoolean(result.data);
@@ -656,37 +728,43 @@ class DeviceController extends EventEmitter {
 
     /**
      *
-     * @returns {Promise<ChargeRealTimeStatus>}
+     * @returns {Promise<ChargeFaultStatus>}
      */
-    async sendGetRealTimeStatus() {
-        let result = (await this.sendCommand(Commands.GetRealTimeStatus, true))?.data;
+    async sendGetFaultStatus() {
+        let result = (await this.sendCommand(Command.GetFaultStatus, true))?.data;
 
         const isV108 = result.length >= 26;
 
-        /** @type ChargeRealTimeStatus */
+        /** @type ChargeFaultStatus */
         let status = {
-            overVoltageFault: parseInt(result.substring(0, 2), 16),
-            underVoltageFault: parseInt(result.substring(2, 4), 16),
-            overloadFault: parseInt(result.substring(4, 6), 16),
-            highTemperatureFault: parseInt(result.substring(6, 8), 16),
-            groundDetectionFault: parseInt(result.substring(8, 10), 16),
-            leakageFault: parseInt(result.substring(10, 12), 16),
-            cpSignalAbnormalFault: parseInt(result.substring(12, 14), 16),
-            emergencyStopButtonFault: parseInt(result.substring(14, 16), 16),
-            ccSignalAbnormalFault: parseInt(result.substring(16, 18), 16),
-            dlbWiringFault: parseInt(result.substring(18, 20), 16),
-            dlbOfflineFault: parseInt(result.substring(20, 22), 16),
-            motorLockFault: parseInt(result.substring(22, 24), 16),
+            overVoltage: parseInt(result.substring(0, 2), 16) !== 0,
+            underVoltage: parseInt(result.substring(2, 4), 16) !== 0,
+            overload: parseInt(result.substring(4, 6), 16) !== 0,
+            highTemperature: parseInt(result.substring(6, 8), 16) !== 0,
+            groundDetection: parseInt(result.substring(8, 10), 16) !== 0,
+            leakage: parseInt(result.substring(10, 12), 16) !== 0,
+            cpSignalAbnormal: parseInt(result.substring(12, 14), 16) !== 0,
+            emergencyStopButton: parseInt(result.substring(14, 16), 16) !== 0,
+            ccSignalAbnormal: parseInt(result.substring(16, 18), 16) !== 0,
+            dlbWiring: parseInt(result.substring(18, 20), 16) !== 0,
+            dlbOffline: parseInt(result.substring(20, 22), 16) !== 0,
+            motorLock: parseInt(result.substring(22, 24), 16) !== 0,
         };
 
         if (isV108) {
-            status.stickingFault = parseInt(result.substring(24, 26), 16);
-            status.contactorFault = parseInt(result.substring(26, 28), 16);
+            status.sticking = parseInt(result.substring(24, 26), 16) !== 0;
+            status.contactor = parseInt(result.substring(26, 28), 16) !== 0;
         }
 
-        this.#lastStatus = status;
+        this.#lastFaultStatus = status;
 
-        this.emit('status', status);
+        /**
+         * A fault status has been returned from the router.
+         *
+         * @event fault_status
+         * @type {ChargeFaultStatus}
+         */
+        this.emit('fault_status', status);
 
         return status;
     }
@@ -696,7 +774,7 @@ class DeviceController extends EventEmitter {
      * @returns {Promise<ChargerRealTimeData>}
      */
     async sendGetRealTimeData() {
-        let result = (await this.sendCommand(Commands.GetRealTimeData, true))?.data;
+        let result = (await this.sendCommand(Command.GetRealTimeData, true))?.data;
 
         let ptr = 0;
 
@@ -709,7 +787,7 @@ class DeviceController extends EventEmitter {
         let isV108 = false;
         let isV110 = false;
 
-        if (this.#model.mode === DeviceModes.OnePhase) {
+        if (this.#model.mode === ChargerMode.OnePhase) {
             data.electricCurrent = parseInt(result.substring(ptr, ptr + 4), 16);
             data.voltage = parseInt(result.substring(ptr + 4, ptr + 8), 16);
             ptr += 8;
@@ -717,7 +795,7 @@ class DeviceController extends EventEmitter {
             isV106 = resultLengthByte >= 36;
             isV108 = resultLengthByte >= 42;
             isV110 = resultLengthByte >= 44;
-        } else if (this.#model.mode === DeviceModes.ThreePhase) {
+        } else if (this.#model.mode === ChargerMode.ThreePhase) {
             data.electricCurrentA = parseInt(result.substring(ptr, ptr + 2), 16);
             data.electricCurrentB = parseInt(result.substring(ptr + 2, ptr + 4), 16);
             data.electricCurrentC = parseInt(result.substring(ptr + 4, ptr + 6), 16);
@@ -734,12 +812,16 @@ class DeviceController extends EventEmitter {
         }
 
         data.power = parseInt(result.substring(ptr, ptr + 4), 16) / 10;
-        data.degrees = parseInt(result.substring(ptr + 4, ptr + 8), 16) / 10;
+        data.totalPower = parseInt(result.substring(ptr + 4, ptr + 8), 16) / 10;
         data.temperature = parseInt(result.substring(ptr + 8, ptr + 10), 16) - 100;
-        data.state = parseInt(result.substring(ptr + 10, ptr + 12), 16);
+        data.state = /**@type ChargerState*/parseInt(result.substring(ptr + 10, ptr + 12), 16);
+        if (data.state === 4) // 4 and 1 are the same
+            data.state = ChargerState.Unplugged;
+        else if (data.state === 3) // 3 and 2 are the same
+            data.state = ChargerState.Standby;
         ptr += 12;
 
-        data.timedChargeState = parseInt(result.substring(ptr, ptr + 2), 16) === 1;
+        data.timedChargeEnabled = result.substring(ptr, ptr + 2) !== '00';
         ptr += 2;
 
         data.startChargeTime = parseInt(result.substring(ptr, ptr + 2), 16).toString().padStart(2, '0') + ':' +
@@ -754,7 +836,7 @@ class DeviceController extends EventEmitter {
 
         if (isV106) {
             data.maxCurrent = parseInt(result.substring(46, 48), 16);
-            data.stopDegrees = parseInt(result.substring(48, 50), 16);
+            data.maxPower = parseInt(result.substring(48, 50), 16);
             data.isReservation = parseInt(result.substring(50, 52), 16) === 1;
             ptr += 6;
         }
@@ -770,23 +852,29 @@ class DeviceController extends EventEmitter {
 
         this.#lastData = data;
 
-        this.emit('data', data);
+        /**
+         * A charger data has been returned from the router.
+         *
+         * @event realtime_data
+         * @type {ChargerRealTimeData}
+         */
+        this.emit('realtime_data', data);
 
         return data;
     }
 
     /**
      *
-     * @returns {Promise<ChargerControls>}
+     * @returns {Promise<ChargerControlsState>}
      */
     async sendGetControlsState() {
-        let result = (await this.sendCommand(Commands.GetControlsState, true))?.data;
+        let result = (await this.sendCommand(Command.GetControlsState, true))?.data;
 
-        /** @type ChargerControls */
+        /** @type ChargerControlsState */
         let control = {
             rfid: parseInt(result.substring(0, 2), 16) === 1,
             appControlCharging: parseInt(result.substring(2, 4), 16) === 1,
-            dlb: parseInt(result.substring(4, 6), 16) === 1,
+            dlb: parseInt(result.substring(4, 6), 16) !== 0, // possible values: 00 disabled, 01 enabled, 02 ?
             groundingDetection: parseInt(result.substring(6, 8), 16) === 1,
             temperatureThreshold: parseInt(result.substring(8, 10), 16),
             maxCurrent: parseInt(result.substring(10, 14), 16),
@@ -807,7 +895,7 @@ class DeviceController extends EventEmitter {
 
         const isV108 = result.length >= 30;
         if (isV108) {
-            control.maxMonthlyCurrent = parseInt(result.substring(i, i + 4), 16);
+            control.maxMonthlyPower = parseInt(result.substring(i, i + 4), 16);
             i += 4;
             control.emergencyStopProtection = (parseInt(result.substring(i, i + 2), 16) || 0) === 1;
             i += 2;
@@ -819,9 +907,15 @@ class DeviceController extends EventEmitter {
             control.nightMode = parseInt(result.substring(i + 2, i + 4), 16) === 1;
         }
 
-        this.#lastControl = control;
+        this.#lastControlsState = control;
 
-        this.emit('control', control);
+        /**
+         * A controls state data has been returned from the router.
+         *
+         * @event controls_state
+         * @type {ChargerControlsState}
+         */
+        this.emit('controls_state', control);
 
         return control;
     }
@@ -832,7 +926,7 @@ class DeviceController extends EventEmitter {
      * @returns {Promise<boolean>}
      */
     async sendSetBluetoothConnectionMode(enabled) {
-        let result = await this.sendCommand(Commands.SetBluetoothConnectionMode +
+        let result = await this.sendCommand(Command.SetBluetoothConnectionMode +
             (enabled ? '01' : '00'),
             true);
         return this.#util.decodeBoolean(result.data);
@@ -844,20 +938,20 @@ class DeviceController extends EventEmitter {
      * @returns {Promise<boolean>}
      */
     async sendSwitchIapMode(enabled) {
-        let result = await this.sendCommand(Commands.SwitchIapMode +
+        let result = await this.sendCommand(Command.SwitchIapMode +
             (enabled ? '01' : '00'),
             true);
         return this.#util.decodeBoolean(result.data);
     }
 
     /**
-     *
-     * @param {number} maxDegrees
+     * Set the maximum power to charge the car with. When it reaches this number, the charger will stop.
+     * @param {number} maxPower
      * @returns {Promise<boolean>}
      */
-    async sendSetMaxDegrees(maxDegrees) {
-        let result = await this.sendCommand(Commands.SetMaxDegrees +
-            Math.min(Math.trunc(maxDegrees), 0xff).toString(16).padStart(2, '0'),
+    async sendSetMaxPower(maxPower) {
+        let result = await this.sendCommand(Command.SetMaxPower +
+            Math.min(Math.trunc(maxPower), 0xff).toString(16).padStart(2, '0'),
             true);
         return this.#util.decodeBoolean(result.data);
     }
@@ -892,7 +986,7 @@ class DeviceController extends EventEmitter {
             (parseInt(toTime.substring(3, 5), 10) || 0).toString(16).padStart(2, '0')
             : '0000';
 
-        let result = await this.sendCommand(Commands.SetReservation + rsr, true);
+        let result = await this.sendCommand(Command.SetReservation + rsr, true);
         return this.#util.decodeBoolean(result.data);
     }
 
@@ -900,8 +994,8 @@ class DeviceController extends EventEmitter {
      *
      * @returns {Promise<boolean>}
      */
-    async sendSetTime() {
-        let result = await this.sendCommand(Commands.SetTime + this.#util.getCurrentDate(), true);
+    async sendSyncTime() {
+        let result = await this.sendCommand(Command.SetTime + this.#util.getCurrentDate(), true);
         return this.#util.decodeBoolean(result.data);
     }
 
@@ -910,7 +1004,7 @@ class DeviceController extends EventEmitter {
      * @returns {Promise<PowerConsumptionRecords>}
      */
     async sendGetPowerConsumptionRecords() /**PowerConsumptionRecords*/ {
-        let result = (await this.sendCommand(Commands.GetPowerConsumptionRecords, true))?.data;
+        let result = (await this.sendCommand(Command.GetPowerConsumptionRecords, true))?.data;
 
         let days = [];
         let months = [];
@@ -945,30 +1039,6 @@ class DeviceController extends EventEmitter {
 
     /**
      *
-     * @param {number} maxCurrent
-     * @returns {Promise<boolean>}
-     */
-    async sendSetMaxMonthlyCurrent(maxCurrent) {
-        let result = await this.sendCommand(Commands.SetMaxMonthlyCurrent +
-            Math.min(Math.trunc(maxCurrent), 0xffff).toString(16).padStart(4, '0'),
-            true);
-        return this.#util.decodeBoolean(result.data);
-    }
-
-    /**
-     *
-     * @param {boolean} enabled
-     * @returns {Promise<boolean>}
-     */
-    async sendSetEmergencyStopProtection(enabled) {
-        let result = await this.sendCommand(Commands.SetEmergencyStopProtection +
-            (enabled ? '01' : '00'),
-            true);
-        return this.#util.decodeBoolean(result.data);
-    }
-
-    /**
-     *
      * @param {number} year
      * @param {number} month
      * @returns {Promise<PowerConsumptionRecordsOfMonth>}
@@ -977,7 +1047,7 @@ class DeviceController extends EventEmitter {
         let date = (year < 2000 ? 0 : year - 2000).toString(16).padStart(2, '0') +
             (month - 1).toString(16).padStart(2, '0');
 
-        let result = (await this.sendCommand(Commands.GetPowerConsumptionRecordsOfMonth + date, true))?.data;
+        let result = (await this.sendCommand(Command.GetPowerConsumptionRecordsOfMonth + date, true))?.data;
 
         const monthLastDay = new Date(year, month, 0).getDate();
 
@@ -998,61 +1068,43 @@ class DeviceController extends EventEmitter {
     }
 
     /**
-     * @returns {string}
+     *
+     * @param {number} maxCurrent
+     * @returns {Promise<boolean>}
      */
-    getStatusText() {
-        switch (this.#lastData?.state) {
-            case 0:
-                return 'Abnormal';
-            case 1:
-            case 4:
-                return 'Unplugged';
-            case 2:
-            case 3:
-                return 'Standby';
-            case 5:
-                return 'Not ready';
-            case 6:
-                return 'Charging';
-            case 7:
-                return 'Self-checking';
-        }
-
-        return '';
+    async sendSetMaxMonthlyPower(maxCurrent) {
+        let result = await this.sendCommand(Command.SetMaxMonthlyPower +
+            Math.min(Math.trunc(maxCurrent), 0xffff).toString(16).padStart(4, '0'),
+            true);
+        return this.#util.decodeBoolean(result.data);
     }
 
     /**
-     * @returns {string}
+     *
+     * @param {boolean} enabled
+     * @returns {Promise<boolean>}
      */
-    getStatusDesc() {
-        switch (this.#lastData?.state) {
-            case 1:
-            case 4:
-                return 'Waiting for plug';
-            case 2:
-            case 3:
-                return 'You can start charging';
-            case 5:
-                return 'Waiting for ready state from vehicle';
-        }
-
-        return '';
+    async sendSetEmergencyStopProtection(enabled) {
+        let result = await this.sendCommand(Command.SetEmergencyStopProtection +
+            (enabled ? '01' : '00'),
+            true);
+        return this.#util.decodeBoolean(result.data);
     }
 
     /**
      * @returns {boolean}
      */
-    canStopCharging() {
-        return this.#lastData?.state === 5 || this.#lastData?.state === 6;
+    get canStopCharging() {
+        return this.#lastData?.state === ChargerState.NotReady || this.#lastData?.state === ChargerState.Charging;
     }
 
     /**
      * @returns {boolean}
      */
-    canStartCharging() {
-        return this.#lastData?.state === 2 || this.#lastData?.state === 3;
+    get canStartCharging() {
+        return this.#lastData?.state === ChargerState.Standby;
     }
 }
 
-export { DeviceController, Commands, DeviceModes };
+export { ChargerController, Command, ChargerMode, ChargerState };
 
