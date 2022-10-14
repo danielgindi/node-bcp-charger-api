@@ -585,7 +585,7 @@ class ChargerController extends EventEmitter {
 
         /** @type ChargerModel */
         let model = {
-            mode: parseInt(result.data.substring(0, 4), 16),
+            mode: /**@type ChargerMode*/parseInt(result.data.substring(0, 4), 16),
             version: this.#util.decodeString(result.data.substring(4, 44)),
             firmwareVersion: parseInt(result.data.substring(44, 46), 16).toString() + '.' +
                 parseInt(result.data.substring(46, 48), 16).toString().padStart(2, '0'),
@@ -593,6 +593,14 @@ class ChargerController extends EventEmitter {
         };
 
         this.#model = model;
+
+        /**
+         * Charger model info has been retrieved.
+         *
+         * @event charger_model
+         * @type {ChargerModel}
+         */
+        this.emit('charger_model', model);
 
         return model;
     }

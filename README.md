@@ -80,6 +80,7 @@ All methods/properties/events are documented in the code.
 * `'heartbeat' ()`
 * `'password' (password: string)`
 * `'ip' (event: { ip: string, port: number })`
+* `'charger_model' (model: ChargeModel)`
 * `'fault_status' (status: ChargeFaultStatus)`
 * `'realtime_data' (data: ChargerRealTimeData)`
 * `'controls_state' (data: ChargerControlsState)`
