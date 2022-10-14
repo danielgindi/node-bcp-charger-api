@@ -5,24 +5,6 @@ import { promisify } from 'node:util';
 import { EventEmitter } from 'node:events';
 
 /**
- * @typedef {Object} ChargeFaultStatus
- * @property {boolean} overVoltage
- * @property {boolean} underVoltage
- * @property {boolean} overload
- * @property {boolean} highTemperature
- * @property {boolean} groundDetection
- * @property {boolean} leakage
- * @property {boolean} cpSignalAbnormal
- * @property {boolean} emergencyStopButton
- * @property {boolean} ccSignalAbnormal
- * @property {boolean} dlbWiring
- * @property {boolean} dlbOffline
- * @property {boolean} motorLock
- * @property {boolean?} sticking
- * @property {boolean?} contactor
- */
-
-/**
  * @typedef {Object} ChargerControlsState
  * @property {boolean} rfid
  * @property {boolean} appControlCharging
@@ -40,59 +22,6 @@ import { EventEmitter } from 'node:events';
  * @property {boolean?} extremeMode
  * @property {boolean?} nightMode
  */
-
-/**
- * @typedef {Object} ChargerRealTimeData
- * @property {number?} electricCurrent - available on 1-phase chargers
- * @property {number?} voltage - available on 1-phase chargers
- * @property {number?} electricCurrentA - available on 3-phase chargers
- * @property {number?} electricCurrentB - available on 3-phase chargers
- * @property {number?} electricCurrentC - available on 3-phase chargers
- * @property {number?} voltageA - available on 3-phase chargers
- * @property {number?} voltageB - available on 3-phase chargers
- * @property {number?} voltageC - available on 3-phase chargers
- * @property {number} power - current power consumption
- * @property {number} totalPower - total power consumption since charger started
- * @property {number} temperature - current charger temperature
- * @property {ChargerState} state
- * @property {boolean} timedChargeEnabled - is the charger in timed charge mode (either pending or charging)
- * @property {string} startChargeTime
- * @property {string} endChargeTime
- * @property {number?} maxCurrent - max current set by the user
- * @property {number?} maxPower - max power set by the user, the charger will stop when `totalPower` reaches this value
- * @property {boolean?} isReservation - has the charger started automatically due to a reservation
- * @property {boolean?} isMaximum - I don't know what this is.
- * @property {boolean?} isExtremeMode - is "extreme mode" enabled for DLB
- */
-
-/**
- * @typedef {Object} ChargerModel
- * @property {ChargerMode} mode
- * @property {string} version
- * @property {string} firmwareVersion
- * @property {string} hardwareVersion
- */
-
-/**
- * @typedef {Object} PowerConsumptionRecords
- * @property {number[]} days
- * @property {number[]} months
- * @property {number[]} years
- */
-
-/**
- * @typedef {Object} PowerConsumptionRecordsOfMonth
- * @property {boolean} isEffective
- * @property {number[]} days
- */
-
-/**
- * @typedef {Object} ParsedMessage
- * @property {string} raw
- * @property {Command} command
- * @property {string} data
- */
-/** */
 
 const FRAME_HEADER = '55aa';
 const MESSAGE_ID = '0001';
@@ -547,7 +476,7 @@ class ChargerController extends EventEmitter {
 
     /**
      * Broadcast a request to resolve the charger's IP address and port, based on it's identification code.
-     * @param {string} code - the charger's code, visible on a sticker on the charger, or in the z-box app.
+     * @param {string} code the charger's code, visible on a sticker on the charger, or in the z-box app.
      * @returns {Promise<{port: number, ip: string}>}
      */
     async sendGetIpAddress(code) {
@@ -1115,4 +1044,3 @@ class ChargerController extends EventEmitter {
 }
 
 export { ChargerController, Command, ChargerMode, ChargerState };
-

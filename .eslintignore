@@ -3,3 +3,5 @@
 
 # But lint actual testing code
 !tests/**/*tests.js
+
+index.d.ts
