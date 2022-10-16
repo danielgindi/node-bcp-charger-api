@@ -91,7 +91,7 @@ class CommandUtil {
         if (!input)
             return '00';
 
-        input = input.replaceAll(' ', '');
+        input = input.replace(/ /g, '');
         const length = input.length;
 
         if ((length % 2) !== 0)
@@ -163,7 +163,7 @@ class CommandUtil {
      * @returns {string}
      */
     decodeString(hexInput) {
-        return iconv.decode(Buffer.from(hexInput.replaceAll(' ', ''), 'hex'), 'gbk')
+        return iconv.decode(Buffer.from(hexInput.replace(/ /g, ''), 'hex'), 'gbk')
             // eslint-disable-next-line no-control-regex
             .replace(/\x00*$/, '');
     }
