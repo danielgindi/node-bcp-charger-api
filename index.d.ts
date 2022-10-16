@@ -133,7 +133,12 @@ export class ChargerController extends EventEmitter {
     /**
      * Set the host and port of the charger, or broadcast ip and port when ip is not known.
      */
-    setHost(ipAddress?: string, port?: number): void;
+    setHost(ipAddress?: string|null, port?: number): void;
+
+    /**
+     * Clears the host information, back in to broadcast mode.
+     */
+    resetHost(): void;
 
     /**
      * Last model data recorded from calling `sendGetChargerModel()`

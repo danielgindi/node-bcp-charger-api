@@ -240,7 +240,7 @@ class ChargerController extends EventEmitter {
 
     /**
      * Set the host and port of the charger, or broadcast ip and port when ip is not known.
-     * @param {string?} ipAddress
+     * @param {string|null?} ipAddress
      * @param {number?} port
      */
     setHost(ipAddress, port = 3333) {
@@ -253,6 +253,13 @@ class ChargerController extends EventEmitter {
 
         this.#ipAddress = ipAddress;
         this.#port = port;
+    }
+
+    /**
+     * Clears the host information, back in to broadcast mode.
+     */
+    resetHost() {
+        this.setHost(null);
     }
 
     /**
