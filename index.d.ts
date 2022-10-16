@@ -242,6 +242,9 @@ export class ChargerController extends EventEmitter {
     get canStopCharging(): boolean;
 
     get canStartCharging(): boolean;
+
+    get resultTimeout(): number;
+    set resultTimeout(timeout: number);
 }
 
 export enum Command {

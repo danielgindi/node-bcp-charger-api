@@ -1041,6 +1041,20 @@ class ChargerController extends EventEmitter {
     get canStartCharging() {
         return this.#lastData?.state === ChargerState.Standby;
     }
+
+    /**
+     * @returns {number}
+     */
+    get resultTimeout() {
+        return this.#resultTimeout;
+    }
+
+    /**
+     * @param {number} timeout
+     */
+    set resultTimeout(timeout) {
+        this.#resultTimeout = timeout;
+    }
 }
 
 export { ChargerController, Command, ChargerMode, ChargerState };
